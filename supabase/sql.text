@@ -1,0 +1,602 @@
+-- =================================
+-- SUPABASE SETUP SCRIPT
+-- Website Bán Hàng Công Nghệ
+-- =================================
+
+-- Bước 1: Tạo extension cần thiết
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Bước 2: Tạo function helper
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- =================================
+-- BẢNG DANH MỤC VÀ THƯƠNG HIỆU
+-- =================================
+
+-- Bảng danh mục sản phẩm
+CREATE TABLE IF NOT EXISTS categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT,
+    parent_id INTEGER REFERENCES categories(id),
+    image_url VARCHAR(500),
+    is_active BOOLEAN DEFAULT true,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng thương hiệu
+CREATE TABLE IF NOT EXISTS brands (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    logo_url VARCHAR(500),
+    description TEXT,
+    website_url VARCHAR(200),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =================================
+-- BẢNG SẢN PHẨM
+-- =================================
+
+-- Bảng sản phẩm chính
+CREATE TABLE IF NOT EXISTS products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    slug VARCHAR(200) NOT NULL UNIQUE,
+    sku VARCHAR(50) UNIQUE,
+    description TEXT,
+    short_description TEXT,
+    category_id INTEGER NOT NULL REFERENCES categories(id),
+    brand_id INTEGER REFERENCES brands(id),
+    price DECIMAL(12,2) NOT NULL CHECK (price >= 0),
+    sale_price DECIMAL(12,2) CHECK (sale_price >= 0 AND sale_price <= price),
+    cost_price DECIMAL(12,2) CHECK (cost_price >= 0),
+    stock_quantity INTEGER DEFAULT 0 CHECK (stock_quantity >= 0),
+    min_stock_level INTEGER DEFAULT 5,
+    weight DECIMAL(8,3),
+    dimensions_length DECIMAL(8,2),
+    dimensions_width DECIMAL(8,2),
+    dimensions_height DECIMAL(8,2),
+    warranty_period INTEGER DEFAULT 12,
+    is_active BOOLEAN DEFAULT true,
+    is_featured BOOLEAN DEFAULT false,
+    meta_title VARCHAR(200),
+    meta_description TEXT,
+    view_count INTEGER DEFAULT 0,
+    rating_average DECIMAL(3,2) DEFAULT 0 CHECK (rating_average >= 0 AND rating_average <= 5),
+    rating_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng thuộc tính sản phẩm
+CREATE TABLE IF NOT EXISTS product_attributes (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(20) DEFAULT 'text' CHECK (type IN ('text', 'number', 'boolean', 'select')),
+    unit VARCHAR(20),
+    is_required BOOLEAN DEFAULT false,
+    is_variation BOOLEAN DEFAULT false,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng giá trị thuộc tính của sản phẩm
+CREATE TABLE IF NOT EXISTS product_attribute_values (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    attribute_id INTEGER NOT NULL REFERENCES product_attributes(id),
+    value TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(product_id, attribute_id)
+);
+
+-- Bảng hình ảnh sản phẩm
+CREATE TABLE IF NOT EXISTS product_images (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    image_url VARCHAR(500) NOT NULL,
+    alt_text VARCHAR(200),
+    is_primary BOOLEAN DEFAULT false,
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng biến thể sản phẩm
+CREATE TABLE IF NOT EXISTS product_variants (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    sku VARCHAR(50) UNIQUE,
+    name VARCHAR(200),
+    price DECIMAL(12,2) NOT NULL CHECK (price >= 0),
+    sale_price DECIMAL(12,2) CHECK (sale_price >= 0 AND sale_price <= price),
+    stock_quantity INTEGER DEFAULT 0 CHECK (stock_quantity >= 0),
+    image_url VARCHAR(500),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng giá trị thuộc tính của biến thể
+CREATE TABLE IF NOT EXISTS variant_attribute_values (
+    id SERIAL PRIMARY KEY,
+    variant_id INTEGER NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
+    attribute_id INTEGER NOT NULL REFERENCES product_attributes(id),
+    value TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(variant_id, attribute_id)
+);
+
+-- =================================
+-- BẢNG NGƯỜI DÙNG
+-- =================================
+
+-- Bảng profile người dùng (mở rộng từ auth.users của Supabase)
+CREATE TABLE IF NOT EXISTS user_profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    phone VARCHAR(20),
+    date_of_birth DATE,
+    gender VARCHAR(10) CHECK (gender IN ('male', 'female', 'other')),
+    avatar_url VARCHAR(500),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng địa chỉ giao hàng
+CREATE TABLE IF NOT EXISTS user_addresses (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    full_name VARCHAR(200) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    address_line1 VARCHAR(255) NOT NULL,
+    address_line2 VARCHAR(255),
+    ward VARCHAR(100),
+    district VARCHAR(100) NOT NULL,
+    city VARCHAR(100) NOT NULL,
+    postal_code VARCHAR(20),
+    is_default BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =================================
+-- BẢNG GIỎ HÀNG VÀ ĐỂ MUỐN
+-- =================================
+
+-- Bảng giỏ hàng
+CREATE TABLE IF NOT EXISTS cart_items (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    session_id VARCHAR(255),
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variant_id INTEGER REFERENCES product_variants(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    price DECIMAL(12,2) NOT NULL CHECK (price >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CHECK (user_id IS NOT NULL OR session_id IS NOT NULL)
+);
+
+-- Bảng sản phẩm yêu thích
+CREATE TABLE IF NOT EXISTS wishlists (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, product_id)
+);
+
+-- Bảng so sánh sản phẩm
+CREATE TABLE IF NOT EXISTS product_comparisons (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    session_id VARCHAR(255),
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CHECK (user_id IS NOT NULL OR session_id IS NOT NULL)
+);
+
+-- =================================
+-- BẢNG ĐỂN HÀNG
+-- =================================
+
+-- Bảng đơn hàng
+CREATE TABLE IF NOT EXISTS orders (
+    id SERIAL PRIMARY KEY,
+    order_number VARCHAR(50) NOT NULL UNIQUE DEFAULT 'ORD-' || EXTRACT(EPOCH FROM NOW())::text,
+    user_id UUID REFERENCES auth.users(id),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded')),
+    payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
+    payment_method VARCHAR(50),
+    shipping_method VARCHAR(50),
+    
+    -- Thông tin khách hàng
+    customer_email VARCHAR(255) NOT NULL,
+    customer_phone VARCHAR(20),
+    customer_name VARCHAR(200) NOT NULL,
+    
+    -- Địa chỉ giao hàng
+    shipping_address_line1 VARCHAR(255) NOT NULL,
+    shipping_address_line2 VARCHAR(255),
+    shipping_ward VARCHAR(100),
+    shipping_district VARCHAR(100) NOT NULL,
+    shipping_city VARCHAR(100) NOT NULL,
+    shipping_postal_code VARCHAR(20),
+    
+    -- Tính toán giá
+    subtotal DECIMAL(12,2) NOT NULL CHECK (subtotal >= 0),
+    tax_amount DECIMAL(12,2) DEFAULT 0 CHECK (tax_amount >= 0),
+    shipping_fee DECIMAL(12,2) DEFAULT 0 CHECK (shipping_fee >= 0),
+    discount_amount DECIMAL(12,2) DEFAULT 0 CHECK (discount_amount >= 0),
+    total_amount DECIMAL(12,2) NOT NULL CHECK (total_amount >= 0),
+    
+    notes TEXT,
+    shipped_at TIMESTAMP WITH TIME ZONE,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    cancelled_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng chi tiết đơn hàng
+CREATE TABLE IF NOT EXISTS order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    variant_id INTEGER REFERENCES product_variants(id),
+    product_name VARCHAR(200) NOT NULL,
+    product_sku VARCHAR(50),
+    variant_name VARCHAR(200),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(12,2) NOT NULL CHECK (unit_price >= 0),
+    total_price DECIMAL(12,2) NOT NULL CHECK (total_price >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =================================
+-- BẢNG MÃ GIẢM GIÁ
+-- =================================
+
+-- Bảng mã giảm giá
+CREATE TABLE IF NOT EXISTS coupons (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('percentage', 'fixed_amount')),
+    value DECIMAL(12,2) NOT NULL CHECK (value > 0),
+    minimum_amount DECIMAL(12,2) DEFAULT 0,
+    maximum_discount DECIMAL(12,2),
+    usage_limit INTEGER,
+    used_count INTEGER DEFAULT 0,
+    per_user_limit INTEGER DEFAULT 1,
+    is_active BOOLEAN DEFAULT true,
+    starts_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng lịch sử sử dụng coupon
+CREATE TABLE IF NOT EXISTS coupon_usage (
+    id SERIAL PRIMARY KEY,
+    coupon_id INTEGER NOT NULL REFERENCES coupons(id),
+    user_id UUID REFERENCES auth.users(id),
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    discount_amount DECIMAL(12,2) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =================================
+-- BẢNG ĐÁNH GIÁ
+-- =================================
+
+-- Bảng đánh giá sản phẩm
+CREATE TABLE IF NOT EXISTS product_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id),
+    order_item_id INTEGER REFERENCES order_items(id),
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    title VARCHAR(200),
+    comment TEXT,
+    is_verified_purchase BOOLEAN DEFAULT false,
+    is_approved BOOLEAN DEFAULT false,
+    helpful_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, product_id, order_item_id)
+);
+
+-- Bảng hình ảnh đánh giá
+CREATE TABLE IF NOT EXISTS review_images (
+    id SERIAL PRIMARY KEY,
+    review_id INTEGER NOT NULL REFERENCES product_reviews(id) ON DELETE CASCADE,
+    image_url VARCHAR(500) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =================================
+-- BẢNG BỔ SUNG
+-- =================================
+
+-- Bảng tin tức/blog
+CREATE TABLE IF NOT EXISTS posts (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(300) NOT NULL,
+    slug VARCHAR(300) NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    excerpt TEXT,
+    featured_image VARCHAR(500),
+    author_id UUID REFERENCES auth.users(id),
+    status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+    is_featured BOOLEAN DEFAULT false,
+    view_count INTEGER DEFAULT 0,
+    meta_title VARCHAR(200),
+    meta_description TEXT,
+    published_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng nhà cung cấp
+CREATE TABLE IF NOT EXISTS suppliers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    contact_person VARCHAR(100),
+    email VARCHAR(255),
+    phone VARCHAR(20),
+    address TEXT,
+    website VARCHAR(200),
+    tax_code VARCHAR(50),
+    payment_terms TEXT,
+    notes TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Bảng giao dịch kho
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('in', 'out', 'adjustment')),
+    reference_type VARCHAR(50),
+    reference_id INTEGER,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    variant_id INTEGER REFERENCES product_variants(id),
+    quantity INTEGER NOT NULL,
+    unit_cost DECIMAL(12,2),
+    total_cost DECIMAL(12,2),
+    notes TEXT,
+    created_by UUID REFERENCES auth.users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- =================================
+-- TẠO INDEX ĐỂ TỐI ƯU HIỆU SUẤT
+-- =================================
+
+-- Index cho bảng products
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
+CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);
+CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active);
+CREATE INDEX IF NOT EXISTS idx_products_featured ON products(is_featured);
+CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
+CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_products_price ON products(price);
+
+-- Index cho bảng product_images
+CREATE INDEX IF NOT EXISTS idx_product_images_product ON product_images(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_images_primary ON product_images(is_primary);
+
+-- Index cho bảng product_variants
+CREATE INDEX IF NOT EXISTS idx_product_variants_product ON product_variants(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_variants_active ON product_variants(is_active);
+
+-- Index cho bảng orders
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_number ON orders(order_number);
+
+-- Index cho bảng order_items
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);
+
+-- Index cho bảng cart_items
+CREATE INDEX IF NOT EXISTS idx_cart_items_user ON cart_items(user_id);
+CREATE INDEX IF NOT EXISTS idx_cart_items_session ON cart_items(session_id);
+
+-- Index cho bảng reviews
+CREATE INDEX IF NOT EXISTS idx_reviews_product ON product_reviews(product_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_user ON product_reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_approved ON product_reviews(is_approved);
+CREATE INDEX IF NOT EXISTS idx_reviews_rating ON product_reviews(rating);
+
+-- =================================
+-- TẠO TRIGGER CẬP NHẬT UPDATED_AT
+-- =================================
+
+-- Trigger cho các bảng có cột updated_at
+CREATE TRIGGER trigger_categories_updated_at 
+    BEFORE UPDATE ON categories 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_brands_updated_at 
+    BEFORE UPDATE ON brands 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_products_updated_at 
+    BEFORE UPDATE ON products 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_product_variants_updated_at 
+    BEFORE UPDATE ON product_variants 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_user_profiles_updated_at 
+    BEFORE UPDATE ON user_profiles 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_user_addresses_updated_at 
+    BEFORE UPDATE ON user_addresses 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_cart_items_updated_at 
+    BEFORE UPDATE ON cart_items 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_orders_updated_at 
+    BEFORE UPDATE ON orders 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_coupons_updated_at 
+    BEFORE UPDATE ON coupons 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_product_reviews_updated_at 
+    BEFORE UPDATE ON product_reviews 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_posts_updated_at 
+    BEFORE UPDATE ON posts 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER trigger_suppliers_updated_at 
+    BEFORE UPDATE ON suppliers 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =================================
+-- DỚU LIỆU MẪU
+-- =================================
+
+-- Dữ liệu mẫu cho categories
+INSERT INTO categories (name, slug, description, sort_order) VALUES 
+('Máy tính & Laptop', 'may-tinh-laptop', 'Máy tính để bàn, laptop các loại', 1),
+('Điện thoại', 'dien-thoai', 'Điện thoại thông minh các hãng', 2),
+('Phụ kiện máy tính', 'phu-kien-may-tinh', 'Chuột, bàn phím, tai nghe, webcam...', 3),
+('Linh kiện máy tính', 'linh-kien-may-tinh', 'CPU, RAM, VGA, bo mạch chủ...', 4),
+('Tablet', 'tablet', 'Máy tính bảng các loại', 5),
+('Đồng hồ thông minh', 'dong-ho-thong-minh', 'Smartwatch các hãng', 6),
+('Âm thanh', 'am-thanh', 'Tai nghe, loa, âm thanh hi-fi', 7)
+ON CONFLICT (slug) DO NOTHING;
+
+-- Dữ liệu mẫu cho brands
+INSERT INTO brands (name, slug, description) VALUES 
+('Apple', 'apple', 'Thương hiệu công nghệ hàng đầu từ Mỹ'),
+('Samsung', 'samsung', 'Tập đoàn điện tử hàng đầu Hàn Quốc'),
+('Xiaomi', 'xiaomi', 'Thương hiệu công nghệ từ Trung Quốc'),
+('Dell', 'dell', 'Nhà sản xuất máy tính hàng đầu'),
+('HP', 'hp', 'Hewlett-Packard - Thương hiệu máy tính nổi tiếng'),
+('Logitech', 'logitech', 'Thương hiệu phụ kiện máy tính hàng đầu'),
+('Intel', 'intel', 'Nhà sản xuất vi xử lý hàng đầu thế giới'),
+('AMD', 'amd', 'Nhà sản xuất vi xử lý và card đồ họa'),
+('NVIDIA', 'nvidia', 'Nhà sản xuất card đồ họa hàng đầu'),
+('Sony', 'sony', 'Tập đoàn điện tử đa quốc gia Nhật Bản')
+ON CONFLICT (slug) DO NOTHING;
+
+-- Dữ liệu mẫu cho product_attributes
+INSERT INTO product_attributes (name, type, unit, sort_order) VALUES 
+('CPU', 'text', NULL, 1),
+('RAM', 'text', 'GB', 2),
+('Dung lượng lưu trữ', 'text', 'GB', 3),
+('Màn hình', 'text', 'inch', 4),
+('Hệ điều hành', 'text', NULL, 5),
+('Màu sắc', 'select', NULL, 6),
+('Độ phân giải', 'text', NULL, 7),
+('Camera', 'text', 'MP', 8),
+('Pin', 'text', 'mAh', 9),
+('Kết nối', 'text', NULL, 10),
+('Trọng lượng', 'number', 'kg', 11),
+('Bảo hành', 'text', 'tháng', 12)
+ON CONFLICT DO NOTHING;
+
+-- =================================
+-- ROW LEVEL SECURITY (RLS) CHO SUPABASE
+-- =================================
+
+-- Bật RLS cho các bảng quan trọng
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cart_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wishlists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_comparisons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
+
+-- Policy cho user_profiles: user chỉ có thể xem/sửa profile của mình
+CREATE POLICY "Users can view own profile" ON user_profiles
+    FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile" ON user_profiles
+    FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own profile" ON user_profiles
+    FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- Policy cho user_addresses: user chỉ có thể xem/sửa địa chỉ của mình
+CREATE POLICY "Users can manage own addresses" ON user_addresses
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Policy cho cart_items: user chỉ có thể xem/sửa giỏ hàng của mình
+CREATE POLICY "Users can manage own cart" ON cart_items
+    FOR ALL USING (auth.uid() = user_id OR session_id IS NOT NULL);
+
+-- Policy cho wishlists: user chỉ có thể xem/sửa wishlist của mình
+CREATE POLICY "Users can manage own wishlist" ON wishlists
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Policy cho orders: user chỉ có thể xem đơn hàng của mình
+CREATE POLICY "Users can view own orders" ON orders
+    FOR SELECT USING (auth.uid() = user_id);
+
+-- Policy cho product_reviews: user có thể xem tất cả review đã được duyệt, chỉ sửa review của mình
+CREATE POLICY "Anyone can view approved reviews" ON product_reviews
+    FOR SELECT USING (is_approved = true);
+
+CREATE POLICY "Users can manage own reviews" ON product_reviews
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Policy cho các bảng public (không cần đăng nhập để xem)
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view categories" ON categories FOR SELECT USING (true);
+
+ALTER TABLE brands ENABLE ROW LEVEL SECURITY;  
+CREATE POLICY "Anyone can view brands" ON brands FOR SELECT USING (true);
+
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view active products" ON products FOR SELECT USING (is_active = true);
+
+ALTER TABLE product_images ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view product images" ON product_images FOR SELECT USING (true);
+
+ALTER TABLE product_variants ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view active variants" ON product_variants FOR SELECT USING (is_active = true);
+
+ALTER TABLE product_attributes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view product attributes" ON product_attributes FOR SELECT USING (true);
+
+ALTER TABLE product_attribute_values ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view product attribute values" ON product_attribute_values FOR SELECT USING (true);
+
+-- =================================
+-- HOÀN TẤT SETUP
+-- =================================
+
+-- Thông báo hoàn thành
+SELECT 'Database setup completed successfully!' as message;
