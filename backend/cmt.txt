@@ -1,0 +1,2 @@
+backend nodejs
+database supabase
