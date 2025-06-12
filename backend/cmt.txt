@@ -1,2 +1,0 @@
-backend nodejs
-database supabase
