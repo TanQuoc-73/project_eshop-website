@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import {Button} from '@/components/ui/button'
 import Image from 'next/image'
+import AuthModal from './AuthModal'
 
 export default function Header() {
   return (
@@ -18,7 +19,7 @@ export default function Header() {
         <nav className="flex gap-8 text-white items-center">
           <Link href="/news">News</Link>
           <Link href="/shops">Shop</Link>
-          <Button variant="default">Sign In </Button>
+          <AuthModal/>
         </nav>
       </div>
     </header>
