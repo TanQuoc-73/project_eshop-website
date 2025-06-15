@@ -6,10 +6,10 @@ export default function AuthModal(){
         <Dialog>
 
             <DialogTrigger asChild>
-                <Button variant="default" className='text-xl'>Sign In</Button>
+                <Button variant="default" className='text-xl text-white bg-gray-600 hover:bg-gray-800 hover:text-gray-100'>Sign In</Button>
             </DialogTrigger>
 
-            <DialogContent>
+            <DialogContent className='bg-gray-900'>
                 <DialogHeader>
                     <DialogTitle>Login</DialogTitle>
                 </DialogHeader>
@@ -18,7 +18,7 @@ export default function AuthModal(){
                     Please enter your account
                 </p>
 
-                <form>
+                <form className='flex flex-col'>
 
                     <input  
                         type = 'email'
@@ -29,11 +29,11 @@ export default function AuthModal(){
                     <input  
                         type = 'password'
                         placeholder="Password"
-                        className="border rounded p-2">
+                        className="border rounded p-2 ">
                     </input>
                     <Button 
                         type='submit'
-                        className='mt-2'>
+                        className='mt-2 '>
                             Login
                     </Button>
 
