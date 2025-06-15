@@ -35,7 +35,7 @@ export default function Header() {
           />
           
           {/* Search Button */}
-          <button className="bg-gray-900 text-white px-4 h-full rounded-r-lg hover:bg-black">
+          <button className="bg-gray-900 text-white px-3 h-full rounded-lg hover:bg-black">
             Search
           </button>
         </div>

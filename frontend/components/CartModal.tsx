@@ -5,7 +5,7 @@ export default function CartModal(){
     return(
         <Popover>
             <PopoverTrigger asChild>
-                <button className='text-xl text-white hover:bg-gray-800 hover:text-gray-100 p-2 rounded-full'>
+                <button className='text-xl text-white hover:bg-gray-800 hover:text-gray-100 p-3 rounded-full'>
                     <FaShoppingCart />
                 </button>
             </PopoverTrigger>
